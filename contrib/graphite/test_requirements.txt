@@ -1,0 +1,3 @@
+requests_mock
+nose
+nose-cover3
