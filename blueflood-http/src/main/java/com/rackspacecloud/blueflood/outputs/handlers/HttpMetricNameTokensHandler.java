@@ -26,8 +26,17 @@ public class HttpMetricNameTokensHandler implements HttpRequestHandler {
     private static final Logger log = LoggerFactory.getLogger(HttpMetricNameTokensHandler.class);
     private DiscoveryIO discoveryHandle;
 
+    public HttpMetricNameTokensHandler() {
+        discoveryHandle = (DiscoveryIO) ModuleLoader.getInstance(DiscoveryIO.class, CoreConfig.ENUMS_DISCOVERY_MODULES);
+    }
+
     private final com.codahale.metrics.Timer HttpMetricNameTokensHandlerTimer = Metrics.timer(HttpMetricNameTokensHandler.class,
             "Handle HTTP request for getNextTokens");
+
+    public HttpMetricNameTokensHandler(DiscoveryIO discoveryHandle) {
+        this.discoveryHandle = discoveryHandle;
+    }
+
     @Override
     public void handle(ChannelHandlerContext ctx, HttpRequest request) {
 
@@ -54,7 +63,6 @@ public class HttpMetricNameTokensHandler implements HttpRequestHandler {
             }
         }
 
-        discoveryHandle = (DiscoveryIO) ModuleLoader.getInstance(DiscoveryIO.class, CoreConfig.ENUMS_DISCOVERY_MODULES);
         if (discoveryHandle == null) {
             sendResponse(ctx, request, null, HttpResponseStatus.NOT_FOUND);
             return;
@@ -86,8 +94,6 @@ public class HttpMetricNameTokensHandler implements HttpRequestHandler {
 
     public String getSerializedJSON(final List<TokenInfo> tokenInfos) {
 
-        ObjectNode resultNode = JsonNodeFactory.instance.objectNode();
-
         ArrayNode tokenInfoArrayNode = JsonNodeFactory.instance.arrayNode();
         for (TokenInfo tokenInfo: tokenInfos) {
 
@@ -98,7 +104,6 @@ public class HttpMetricNameTokensHandler implements HttpRequestHandler {
             tokenInfoArrayNode.add(tokenInfoNode);
         }
 
-        resultNode.put("tokens", tokenInfoArrayNode);
-        return resultNode.toString();
+        return tokenInfoArrayNode.toString();
     }
 }
