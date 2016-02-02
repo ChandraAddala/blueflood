@@ -174,10 +174,12 @@
       <plugin>
         <groupId>org.eluder.coveralls</groupId>
         <artifactId>coveralls-maven-plugin</artifactId>
-        <version>3.0.1</version>
+        <version>4.1.0</version>
         <configuration>
           <jacocoReports>
+            <jacocoReport>blueflood-core/target/site/jacoco/jacoco.xml</jacocoReport>
             <jacocoReport>blueflood-core/target/site/jacoco-it/jacoco.xml</jacocoReport>
+            <jacocoReport>blueflood-http/target/site/jacoco/jacoco.xml</jacocoReport>
             <jacocoReport>blueflood-http/target/site/jacoco-it/jacoco.xml</jacocoReport>
           </jacocoReports>
         </configuration>
@@ -242,6 +244,12 @@
       <id>all-modules</id>
       <modules>
         <module>blueflood-all</module>
+      </modules>
+    </profile>
+    <profile>
+      <id>logstash-support</id>
+      <modules>
+        <module>contrib/logstash-support</module>
       </modules>
     </profile>
     <profile>
