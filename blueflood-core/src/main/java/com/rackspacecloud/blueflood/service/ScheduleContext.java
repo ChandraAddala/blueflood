@@ -233,12 +233,14 @@ public class ScheduleContext implements IngestionContext, ScheduleContextMBean {
                             continue;
                         }
                         if (!canWorkOnShard(shard)) {
+                            log.debug("skipping as canWorkOnShard is false for shard {}", shard);
                             continue;
                         }
 
                         for (Integer slot : slotsToWorkOn) {
                             SlotKey slotKey = SlotKey.of(g, slot, shard);
                             if (areChildKeysOrSelfKeyScheduledOrRunning(slotKey)) {
+                                log.debug("skipping as areChildKeysOrSelfKeyScheduledOrRunning is true for slotKey {}", slotKey);
                                 continue;
                             }
                             SlotKey key = SlotKey.of(g, slot, shard);
@@ -257,12 +259,14 @@ public class ScheduleContext implements IngestionContext, ScheduleContextMBean {
         Collection<SlotKey> ineligibleKeys = slotKey.getChildrenKeys();
 
         if (runningSlots.keySet().contains(slotKey) || scheduledSlots.contains(slotKey)) {
+            log.debug("returning true as slotKey {} is in scheduledSlots or runningSlots", slotKey);
             return true;
         }
 
         // if any ineligible keys are running or scheduled to run, do not schedule this key.
         for (SlotKey childrenKey : ineligibleKeys) {
             if (runningSlots.keySet().contains(childrenKey) || scheduledSlots.contains(childrenKey)) {
+                log.debug("returning true as childrenKey {} is in scheduledSlots or runningSlots for slotKey {} ", childrenKey, slotKey);
                 return true;
             }
         }
