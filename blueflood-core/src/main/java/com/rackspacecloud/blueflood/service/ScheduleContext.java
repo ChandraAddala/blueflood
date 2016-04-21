@@ -251,6 +251,7 @@ public class ScheduleContext implements IngestionContext, ScheduleContextMBean {
                         for (Integer slot : slotsToWorkOn) {
                             SlotKey slotKey = SlotKey.of(g, slot, shard);
                             if (areChildKeysOrSelfKeyScheduledOrRunning(slotKey)) {
+                                log.debug("skipping slotKey {} as areChildKeysOrSelfKeyScheduledOrRunning returned true", slotKey);
                                 continue;
                             }
                             SlotKey key = SlotKey.of(g, slot, shard);
@@ -269,18 +270,23 @@ public class ScheduleContext implements IngestionContext, ScheduleContextMBean {
         Collection<SlotKey> ineligibleKeys = slotKey.getChildrenKeys();
 
         if (runningSlots.keySet().contains(slotKey)) {
+            log.debug("returning true as slotKey {} is in runningSlots", slotKey);
             return true;
         }
+
         if (scheduledSlots.contains(slotKey)) {
+            log.debug("returning true as slotKey {} is in scheduledSlots", slotKey);
             return true;
         }
 
         // if any ineligible keys are running or scheduled to run, do not schedule this key.
         for (SlotKey childrenKey : ineligibleKeys) {
             if (runningSlots.keySet().contains(childrenKey)) {
+                log.debug("returning true as childrenKey {} is in runningSlots for slotKey {} ", childrenKey, slotKey);
                 return true;
             }
             if (scheduledSlots.contains(childrenKey)) {
+                log.debug("returning true as childrenKey {} is in scheduledSlots for slotKey {} ", childrenKey, slotKey);
                 return true;
             }
         }
