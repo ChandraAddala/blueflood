@@ -154,7 +154,7 @@ public enum CoreConfig implements ConfigDefaults {
     TENANTIDS_TO_KEEP(""),
     TRACKER_DELAYED_METRICS_MILLIS("300000"),
 
-    REROLL_ONLY_DELAYED_METRICS("true"),
+    REROLL_ONLY_DELAYED_METRICS("false"),
 
     USE_ES_FOR_UNITS("false"),
     // Should at least be equal to the number of the netty worker threads, if http module is getting loaded

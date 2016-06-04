@@ -102,28 +102,39 @@ class LocatorFetchRunnable implements Runnable {
         final RollupExecutionContext executionContext = createRollupExecutionContext();
         final RollupBatchWriter rollupBatchWriter = createRollupBatchWriter(executionContext);
 
-        Set<Locator> locators = getLocators(executionContext);
+        try {
+            Set<Locator> locators = getLocators(executionContext);
 
-        boolean isSlotBeingRerolled = scheduleCtx.isReroll(parentSlotKey);
-        for (Locator locator : locators) {
 
-            //if slot is being re-rolled, only process locator if locator's lastUpdateTimestamp is after last rollup time
-            if (IS_REROLL_ONLY_DELAYED_METRICS &&
-                    isSlotBeingRerolled) {
+            int beforeQueueSize = ((ThreadPoolExecutor) rollupReadExecutor).getQueue().size();
+            boolean isSlotBeingRerolled = scheduleCtx.isReroll(parentSlotKey);
+            for (Locator locator : locators) {
 
-                UpdateStamp updateStamp = scheduleCtx.getShardStateManager().getUpdateStamp(parentSlotKey);
-                if (locator.getLastUpdatedTimestamp() > updateStamp.getLastRollupTimestamp()) {
-                    rollCount = processLocator(rollCount, executionContext, rollupBatchWriter, locator, true);
+                //if slot is being re-rolled, only process locator if locator's lastUpdateTimestamp is after last rollup time
+                if (IS_REROLL_ONLY_DELAYED_METRICS &&
+                        isSlotBeingRerolled) {
+
+                    UpdateStamp updateStamp = scheduleCtx.getShardStateManager().getUpdateStamp(parentSlotKey);
+                    if (locator.getLastUpdatedTimestamp() > updateStamp.getLastRollupTimestamp()) {
+                        rollCount = processLocator(rollCount, executionContext, rollupBatchWriter, locator, true);
+                    }
+
+                } else {
+                    rollCount = processLocator(rollCount, executionContext, rollupBatchWriter, locator, isSlotBeingRerolled);
                 }
-
-            } else {
-                rollCount = processLocator(rollCount, executionContext, rollupBatchWriter, locator, isSlotBeingRerolled);
             }
-        }
-        log.debug("For slotKey {} [isReroll={}], number of locator's that were rolled up are {} out of {}", new Object[]{parentSlotKey, isSlotBeingRerolled, rollCount, locators.size()});
+            log.debug("For slotKey {} [isReroll={}], number of locator's that were rolled up are {} out of {}", new Object[]{parentSlotKey, isSlotBeingRerolled, rollCount, locators.size()});
 
-        // now wait until ctx is drained. someone needs to be notified.
-        drainExecutionContext(waitStart, rollCount, executionContext, rollupBatchWriter);
+            int afterQueueSize = ((ThreadPoolExecutor) rollupReadExecutor).getQueue().size();
+            int diff = afterQueueSize - beforeQueueSize;
+            boolean isDiffLessThanRollupCount = diff < rollCount;
+            log.debug("beforeQueueSize={}, afterQueueSize={}, diff={}, isDiffLessThanRollupCount=", new Object[] {beforeQueueSize, afterQueueSize, diff, isDiffLessThanRollupCount});
+
+            // now wait until ctx is drained. someone needs to be notified.
+            drainExecutionContext(waitStart, rollCount, executionContext, rollupBatchWriter);
+        } catch (Exception e) {
+            log.error("LocatorFetchRunnable exception", e);
+        }
 
         timerCtx.stop();
     }
@@ -149,7 +160,7 @@ class LocatorFetchRunnable implements Runnable {
                     log.trace("Woken wile waiting for rollups to coalesce for {} {}", parentSlotKey);
             } finally {
                 String verb = executionContext.doneReading() ? "writing" : "reading";
-                log.debug("Still waiting for rollups to finish {} for {} {}", new Object[] {verb, parentSlotKey, System.currentTimeMillis() - waitStart });
+                log.trace("Still waiting for rollups to finish {} for {} {}", new Object[]{verb, parentSlotKey, System.currentTimeMillis() - waitStart });
             }
         }
         if (log.isDebugEnabled())
