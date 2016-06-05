@@ -128,7 +128,7 @@ class LocatorFetchRunnable implements Runnable {
             int afterQueueSize = ((ThreadPoolExecutor) rollupReadExecutor).getQueue().size();
             int diff = afterQueueSize - beforeQueueSize;
             boolean isDiffLessThanRollupCount = diff < rollCount;
-            log.debug("beforeQueueSize={}, afterQueueSize={}, diff={}, isDiffLessThanRollupCount=", new Object[] {beforeQueueSize, afterQueueSize, diff, isDiffLessThanRollupCount});
+            log.debug("slotkey:{}, beforeQueueSize={}, afterQueueSize={}, diff={}, isDiffLessThanRollupCount={}", new Object[] {parentSlotKey, beforeQueueSize, afterQueueSize, diff, isDiffLessThanRollupCount});
 
             // now wait until ctx is drained. someone needs to be notified.
             drainExecutionContext(waitStart, rollCount, executionContext, rollupBatchWriter);
@@ -219,6 +219,7 @@ class LocatorFetchRunnable implements Runnable {
         final SingleRollupReadContext singleRollupReadContext = new SingleRollupReadContext(locator, parentRange, getGranularity());
         RollupRunnable rollupRunnable = new RollupRunnable(executionContext, singleRollupReadContext, rollupBatchWriter, enumValidatorExecutor);
         rollupReadExecutor.execute(rollupRunnable);
+        log.debug("During processing of slotkey: {} current count: {}", new Object[] {parentSlotKey, ((ThreadPoolExecutor) rollupReadExecutor).getQueue().size()});
     }
 
     public Set<Locator> getLocators(RollupExecutionContext executionContext) {
