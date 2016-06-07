@@ -368,7 +368,12 @@ public class RollupService implements Runnable, RollupServiceMBean {
         rollupReadExecutors.setMaximumPoolSize(i);
     }
 
-    public synchronized int getQueuedRollupCount() { return rollupReadExecutors.getQueue().size(); }
+    public synchronized int getQueuedRollupCount() {
+        int size = rollupReadExecutors.getQueue().size();
+        log.debug("RollupService current queuedRollupCount=" + size);
+        return size;
+    }
+
     public synchronized int getInFlightRollupCount() { return rollupReadExecutors.getActiveCount(); }
 
     public synchronized boolean getActive() { return active; }

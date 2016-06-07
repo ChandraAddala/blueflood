@@ -105,7 +105,7 @@ class LocatorFetchRunnable implements Runnable {
         try {
             Set<Locator> locators = getLocators(executionContext);
 
-
+            scheduleCtx.addLocatorRollupCount(locators.size());
             int beforeQueueSize = ((ThreadPoolExecutor) rollupReadExecutor).getQueue().size();
             boolean isSlotBeingRerolled = scheduleCtx.isReroll(parentSlotKey);
             for (Locator locator : locators) {
@@ -125,13 +125,12 @@ class LocatorFetchRunnable implements Runnable {
             }
             log.debug("For slotKey {} [isReroll={}], number of locator's that were rolled up are {} out of {}", new Object[]{parentSlotKey, isSlotBeingRerolled, rollCount, locators.size()});
 
-            int afterQueueSize = ((ThreadPoolExecutor) rollupReadExecutor).getQueue().size();
-            int diff = afterQueueSize - beforeQueueSize;
-            boolean isDiffLessThanRollupCount = diff < rollCount;
-            log.debug("slotkey:{}, beforeQueueSize={}, afterQueueSize={}, diff={}, isDiffLessThanRollupCount={}", new Object[] {parentSlotKey, beforeQueueSize, afterQueueSize, diff, isDiffLessThanRollupCount});
-
             // now wait until ctx is drained. someone needs to be notified.
             drainExecutionContext(waitStart, rollCount, executionContext, rollupBatchWriter);
+
+            int afterQueueSize = ((ThreadPoolExecutor) rollupReadExecutor).getQueue().size();
+            log.debug("slotkey:{} beforeQueueSize={}, afterQueueSize={}, computed total count={}", new Object[]{parentSlotKey, beforeQueueSize, afterQueueSize, scheduleCtx.getLocatorRollupCount()});
+
         } catch (Exception e) {
             log.error("LocatorFetchRunnable exception", e);
         }
@@ -167,6 +166,7 @@ class LocatorFetchRunnable implements Runnable {
             log.debug("Finished {} rollups for (gran,slot,shard) {} in {}", new Object[] {rollCount, parentSlotKey, System.currentTimeMillis() - waitStart});
 
         finishExecution(waitStart, executionContext);
+        scheduleCtx.removeLocatorRollupCount(rollCount);
     }
 
     protected void waitForRollups() throws InterruptedException {
@@ -219,7 +219,6 @@ class LocatorFetchRunnable implements Runnable {
         final SingleRollupReadContext singleRollupReadContext = new SingleRollupReadContext(locator, parentRange, getGranularity());
         RollupRunnable rollupRunnable = new RollupRunnable(executionContext, singleRollupReadContext, rollupBatchWriter, enumValidatorExecutor);
         rollupReadExecutor.execute(rollupRunnable);
-        log.debug("During processing of slotkey: {} current count: {}", new Object[] {parentSlotKey, ((ThreadPoolExecutor) rollupReadExecutor).getQueue().size()});
     }
 
     public Set<Locator> getLocators(RollupExecutionContext executionContext) {

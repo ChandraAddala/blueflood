@@ -109,6 +109,20 @@ public class ScheduleContext implements IngestionContext, ScheduleContextMBean {
     private static final Logger log = LoggerFactory.getLogger(ScheduleContext.class);
     private final Timer markSlotDirtyTimer = Metrics.timer(ScheduleContext.class, "Slot Mark Dirty Duration");
 
+    private long locatorRollupCount = 0;
+
+    public synchronized long getLocatorRollupCount() {
+        return locatorRollupCount;
+    }
+
+    public synchronized void addLocatorRollupCount(long count) {
+        this.locatorRollupCount += count;
+    }
+
+    public synchronized void removeLocatorRollupCount(long count) {
+        this.locatorRollupCount -= count;
+    }
+
     private final ShardStateManager shardStateManager;
     private transient long scheduleTime = 0L;
     
