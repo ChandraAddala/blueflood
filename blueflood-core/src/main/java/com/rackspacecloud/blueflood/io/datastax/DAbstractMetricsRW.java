@@ -1,7 +1,10 @@
 package com.rackspacecloud.blueflood.io.datastax;
 
 import com.codahale.metrics.Timer;
+import com.datastax.driver.core.BatchStatement;
 import com.datastax.driver.core.ResultSetFuture;
+import com.datastax.driver.core.Session;
+import com.datastax.driver.core.Statement;
 import com.google.common.collect.Table;
 import com.rackspacecloud.blueflood.cache.MetadataCache;
 import com.rackspacecloud.blueflood.exceptions.CacheException;
@@ -63,9 +66,12 @@ public abstract class DAbstractMetricsRW extends AbstractMetricsRW {
             return;
         }
 
-        Map<ResultSetFuture, SingleRollupWriteContext> futureLocatorMap = new HashMap<ResultSetFuture, SingleRollupWriteContext>();
         Timer.Context ctx = Instrumentation.getWriteTimerContext( writeContexts.get( 0 ).getDestinationCF().getName() );
+
         try {
+
+            BatchStatement batch = new BatchStatement(BatchStatement.Type.UNLOGGED);
+
             for (SingleRollupWriteContext writeContext : writeContexts) {
                 Rollup rollup = writeContext.getRollup();
                 Locator locator = writeContext.getLocator();
@@ -74,21 +80,18 @@ public abstract class DAbstractMetricsRW extends AbstractMetricsRW {
 
                 // lookup the right writer
                 RollupType rollupType = writeContext.getRollup().getRollupType();
-                DAbstractMetricIO io = getIO( rollupType.name().toLowerCase(), granularity );
+                DAbstractMetricIO io = getIO(rollupType.name().toLowerCase(), granularity);
 
-                ResultSetFuture future = io.putAsync(locator, writeContext.getTimestamp(), rollup, writeContext.getGranularity(), ttl);
-                futureLocatorMap.put(future, writeContext);
+                Statement statement = io.createStatement(locator, writeContext.getTimestamp(), rollup, writeContext.getGranularity(), ttl);
+                batch.add(statement);
             }
 
-            for (ResultSetFuture future : futureLocatorMap.keySet()) {
-                try {
-                    future.getUninterruptibly().all();
-                } catch (Exception ex) {
-                    Instrumentation.markWriteError();
-                    SingleRollupWriteContext writeContext = futureLocatorMap.get(future);
-                    LOG.error(String.format("error writing to locator %s, granularity %s", writeContext.getLocator(), writeContext.getGranularity()), ex);
-                }
-            }
+            Session session = DatastaxIO.getSession();
+            session.execute(batch);
+
+        } catch (Exception ex) {
+            Instrumentation.markWriteError();
+            LOG.error(String.format("error writing locator batch of size %s, granularity %s", writeContexts.size(), writeContexts.get(0).getGranularity()), ex);
         } finally {
             ctx.stop();
         }

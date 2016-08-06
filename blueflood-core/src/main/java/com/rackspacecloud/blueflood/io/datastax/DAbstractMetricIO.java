@@ -19,9 +19,12 @@ package com.rackspacecloud.blueflood.io.datastax;
 import com.datastax.driver.core.*;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Table;
+import com.rackspacecloud.blueflood.cache.CombinedTtlProvider;
+import com.rackspacecloud.blueflood.cache.TenantTtlProvider;
 import com.rackspacecloud.blueflood.io.CassandraModel;
 import com.rackspacecloud.blueflood.io.Instrumentation;
 import com.rackspacecloud.blueflood.rollup.Granularity;
+import com.rackspacecloud.blueflood.service.SingleRollupWriteContext;
 import com.rackspacecloud.blueflood.types.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,6 +72,28 @@ public abstract class DAbstractMetricIO {
         return session.executeAsync(batch);
     }
 
+    public Statement createStatement(Locator locator, long collectionTime, Rollup rollup, Granularity granularity, int ttl) {
+        PreparedStatement statement;
+
+        if( rollup.getRollupType() == RollupType.BF_BASIC ) {
+
+            // Strings and Booleans don't get rolled up.  I'd like to verify
+            // that none are passed in, but that would require a db access
+
+            statement = metricsCFPreparedStatements.basicGranToInsertStatement.get( granularity );
+        }
+        else {
+            statement = metricsCFPreparedStatements.preaggrGranToInsertStatement.get(granularity);
+        }
+
+        BoundStatement bound = statement.bind(locator.toString(),
+                collectionTime,
+                toByteBuffer(rollup),
+                ttl);
+
+        return bound;
+    }
+
     /**
      * Fetch rollup objects for a {@link com.rackspacecloud.blueflood.types.Locator}
      * from the specified column family and range.
@@ -81,9 +106,9 @@ public abstract class DAbstractMetricIO {
     protected <T extends Object> Table<Locator, Long, T> getRollupsForLocator(final Locator locator,
                                                                               String columnFamily,
                                                                               Range range) {
-        return getValuesForLocators( new ArrayList<Locator>() {{
-            add( locator );
-        }}, columnFamily, range );
+        return getValuesForLocators(new ArrayList<Locator>() {{
+            add(locator);
+        }}, columnFamily, range);
     }
 
     /**
