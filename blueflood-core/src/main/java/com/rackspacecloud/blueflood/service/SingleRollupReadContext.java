@@ -19,6 +19,7 @@ package com.rackspacecloud.blueflood.service;
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Meter;
 import com.codahale.metrics.Timer;
+import com.datastax.driver.core.TokenRange;
 import com.rackspacecloud.blueflood.types.Locator;
 import com.rackspacecloud.blueflood.types.Range;
 import com.rackspacecloud.blueflood.utils.Metrics;
@@ -44,10 +45,17 @@ public class SingleRollupReadContext {
     // documenting that this represents the DESTINATION granularity, not the SOURCE granularity.
     private final Granularity rollupGranularity;
 
-    public SingleRollupReadContext(Locator locator, Range rangeToRead, Granularity rollupGranularity) {
+    private TokenRange tokenRange;
+
+    public SingleRollupReadContext(Locator locator, Range range, Granularity rollupGranularity, TokenRange tokenRange) {
         this.locator = locator;
-        this.range = rangeToRead;
+        this.range = range;
         this.rollupGranularity = rollupGranularity;
+        this.tokenRange = tokenRange;
+    }
+
+    public SingleRollupReadContext(Locator locator, Range rangeToRead, Granularity rollupGranularity) {
+        this(locator, rangeToRead, rollupGranularity, null);
     }
     
     Timer getExecuteTimer() {

@@ -147,7 +147,7 @@ class LocatorFetchRunnable implements Runnable {
         // they are not in a wide range of partitions.
         for (TokenRange tokenRange: multimap.keySet()) {
             for (Locator locator: multimap.get(tokenRange)) {
-                rollCount = processLocator(rollCount, executionContext, rollupBatchWriter, locator);
+                rollCount = processLocator(rollCount, executionContext, rollupBatchWriter, locator, tokenRange);
             }
         }
 
@@ -207,10 +207,14 @@ class LocatorFetchRunnable implements Runnable {
     }
 
     public int processLocator(int rollCount, RollupExecutionContext executionContext, RollupBatchWriter rollupBatchWriter, Locator locator) {
+        return processLocator(rollCount, executionContext, rollupBatchWriter, locator, null);
+    }
+
+    public int processLocator(int rollCount, RollupExecutionContext executionContext, RollupBatchWriter rollupBatchWriter, Locator locator, TokenRange tokenRange) {
         if (log.isTraceEnabled())
             log.trace("Rolling up (check,metric,dimension) {} for (gran,slot,shard) {}", locator, parentSlotKey);
         try {
-            executeRollupForLocator(executionContext, rollupBatchWriter, locator);
+            executeRollupForLocator(executionContext, rollupBatchWriter, locator, tokenRange);
             rollCount += 1;
         } catch (Throwable any) {
             // continue on, but log the problem so that we can fix things later.
@@ -226,8 +230,12 @@ class LocatorFetchRunnable implements Runnable {
     }
 
     public void executeRollupForLocator(RollupExecutionContext executionContext, RollupBatchWriter rollupBatchWriter, Locator locator) {
+        executeRollupForLocator(executionContext, rollupBatchWriter, locator, null);
+    }
+
+    public void executeRollupForLocator(RollupExecutionContext executionContext, RollupBatchWriter rollupBatchWriter, Locator locator, TokenRange tokenRange) {
         executionContext.incrementReadCounter();
-        final SingleRollupReadContext singleRollupReadContext = new SingleRollupReadContext(locator, parentRange, getGranularity());
+        final SingleRollupReadContext singleRollupReadContext = new SingleRollupReadContext(locator, parentRange, getGranularity(), tokenRange);
         RollupRunnable rollupRunnable = new RollupRunnable(executionContext, singleRollupReadContext, rollupBatchWriter, enumValidatorExecutor);
         rollupReadExecutor.execute(rollupRunnable);
     }

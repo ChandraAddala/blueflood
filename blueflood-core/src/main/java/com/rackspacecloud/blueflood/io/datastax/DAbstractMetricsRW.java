@@ -1,18 +1,19 @@
 package com.rackspacecloud.blueflood.io.datastax;
 
+import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Timer;
-import com.datastax.driver.core.BatchStatement;
-import com.datastax.driver.core.ResultSetFuture;
-import com.datastax.driver.core.Session;
-import com.datastax.driver.core.Statement;
+import com.datastax.driver.core.*;
 import com.google.common.collect.Table;
 import com.rackspacecloud.blueflood.cache.MetadataCache;
 import com.rackspacecloud.blueflood.exceptions.CacheException;
 import com.rackspacecloud.blueflood.io.*;
 import com.rackspacecloud.blueflood.outputs.formats.MetricData;
 import com.rackspacecloud.blueflood.rollup.Granularity;
+import com.rackspacecloud.blueflood.service.RollupService;
 import com.rackspacecloud.blueflood.service.SingleRollupWriteContext;
 import com.rackspacecloud.blueflood.types.*;
+import com.rackspacecloud.blueflood.types.DataType;
+import com.rackspacecloud.blueflood.utils.Metrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,6 +27,7 @@ import java.util.*;
 public abstract class DAbstractMetricsRW extends AbstractMetricsRW {
 
     private static final Logger LOG = LoggerFactory.getLogger( DAbstractMetricsRW.class );
+    private static final Histogram uniqueTokenRangesPerBatch = Metrics.histogram(RollupService.class, "Unique token ranges per batch");
 
     protected final LocatorIO locatorIO;
 
@@ -69,11 +71,15 @@ public abstract class DAbstractMetricsRW extends AbstractMetricsRW {
 
         Timer.Context ctx = Instrumentation.getWriteTimerContext( writeContexts.get( 0 ).getDestinationCF().getName() );
 
+        Set<TokenRange> tokenRanges = new HashSet<TokenRange>();
+
         try {
 
             BatchStatement batch = new BatchStatement(BatchStatement.Type.UNLOGGED);
 
             for (SingleRollupWriteContext writeContext : writeContexts) {
+                tokenRanges.add(writeContext.getTokenRange());
+
                 Rollup rollup = writeContext.getRollup();
                 Locator locator = writeContext.getLocator();
                 Granularity granularity = writeContext.getGranularity();
@@ -95,6 +101,7 @@ public abstract class DAbstractMetricsRW extends AbstractMetricsRW {
             LOG.error(String.format("error writing locator batch of size %s, granularity %s", writeContexts.size(), writeContexts.get(0).getGranularity()), ex);
         } finally {
             ctx.stop();
+            uniqueTokenRangesPerBatch.update(tokenRanges.size());
         }
     }
 
