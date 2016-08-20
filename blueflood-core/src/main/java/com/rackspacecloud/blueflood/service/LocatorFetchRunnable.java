@@ -142,6 +142,7 @@ class LocatorFetchRunnable implements Runnable {
             }
         }
 
+        log.info("Number of Token Ranges per slot: {}, number of locators: {}", multimap.keySet().size(), locators.size());
         // processing locators, partition by partition. This way, when we write these locators, there is a
         // chance locators belonging to the same partition get batched up. If not from the same partition, atleast
         // they are not in a wide range of partitions.
