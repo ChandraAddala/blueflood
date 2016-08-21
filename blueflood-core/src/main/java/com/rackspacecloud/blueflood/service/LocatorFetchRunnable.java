@@ -137,6 +137,8 @@ class LocatorFetchRunnable implements Runnable {
                     if (tokenRange.contains(new DatastaxM3PToken(token))) {
 
                         isTokenWithinRange = true;
+                        log.debug("Locator {} has token value {} and fits in token range {}", new Object[] {locator, token, tokenRange});
+
                         multimap.put(tokenRange, locator);
                         break;
                     }
@@ -168,6 +170,8 @@ class LocatorFetchRunnable implements Runnable {
                     if (tokenRange.contains(new DatastaxM3PToken(token))) {
 
                         isTokenWithinRange = true;
+                        log.debug("Locator {} has token value {} and fits in token range {}", new Object[] {locator, token, tokenRange});
+
                         rollCount = processLocator(rollCount, executionContext, rollupBatchWriter, locator, tokenRange);
                         break;
                     }

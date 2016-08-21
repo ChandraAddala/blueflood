@@ -79,4 +79,8 @@ public class SingleRollupReadContext {
     Locator getLocator() {
         return this.locator;
     }
+
+    public TokenRange getTokenRange() {
+        return tokenRange;
+    }
 }
