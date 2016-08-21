@@ -122,27 +122,28 @@ class LocatorFetchRunnable implements Runnable {
         CharsetEncoder encoder = charset.newEncoder();
 
         Set<Locator> locators = getLocators(executionContext);
+
+
         ListMultimap<TokenRange, Locator> multimap = ArrayListMultimap.create();
-
-
         if (EXP_BATCH_WRITES_OPTIMIZATION) {
 
             //grouping locators by token range.
             for (Locator locator: locators) {
 
-                try {
-                    IPartitioner<LongToken> partitioner = new Murmur3Partitioner();
-                    LongToken token = partitioner.getToken(encoder.encode(CharBuffer.wrap(locator.getMetricName())));
+                LongToken token = getToken(encoder, locator);
 
-                    for (TokenRange tokenRange: tokenRanges) {
-                        if (tokenRange.contains(new DatastaxM3PToken(token))) {
-                            multimap.put(tokenRange, locator);
-                            break;
-                        }
+                boolean isTokenWithinRange = false;
+                for (TokenRange tokenRange: tokenRanges) {
+                    if (tokenRange.contains(new DatastaxM3PToken(token))) {
+
+                        isTokenWithinRange = true;
+                        multimap.put(tokenRange, locator);
+                        break;
                     }
+                }
 
-                } catch (CharacterCodingException e) {
-                    log.error("Error calculating token for locator:[%s]", locator);
+                if (!isTokenWithinRange) {
+                    log.error("Locator {} with token {} not found in any token range", locator, token);
                 }
             }
 
@@ -157,16 +158,45 @@ class LocatorFetchRunnable implements Runnable {
                 }
             }
         } else {
+
             for (Locator locator : locators) {
-                rollCount = processLocator(rollCount, executionContext, rollupBatchWriter, locator);
+
+                LongToken token = getToken(encoder, locator);
+
+                boolean isTokenWithinRange = false;
+                for (TokenRange tokenRange: tokenRanges) {
+                    if (tokenRange.contains(new DatastaxM3PToken(token))) {
+
+                        isTokenWithinRange = true;
+                        rollCount = processLocator(rollCount, executionContext, rollupBatchWriter, locator, tokenRange);
+                        break;
+                    }
+                }
+
+                if (!isTokenWithinRange) {
+                    log.error("Locator {} with token {} not found in any token range", locator, token);
+                }
             }
         }
-
 
         // now wait until ctx is drained. someone needs to be notified.
         drainExecutionContext(waitStart, rollCount, executionContext, rollupBatchWriter);
 
         timerCtx.stop();
+    }
+
+    private LongToken getToken(CharsetEncoder encoder, Locator locator) {
+        LongToken token = null;
+
+        try {
+
+            IPartitioner<LongToken> partitioner = new Murmur3Partitioner();
+            token = partitioner.getToken(encoder.encode(CharBuffer.wrap(locator.getMetricName())));
+
+        } catch (CharacterCodingException e) {
+            log.error("Error calculating token for locator:[%s]", locator);
+        }
+        return token;
     }
 
     protected RollupExecutionContext createRollupExecutionContext() {
