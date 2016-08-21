@@ -60,9 +60,10 @@ class LocatorFetchRunnable implements Runnable {
     private SlotKey parentSlotKey;
     private ScheduleContext scheduleCtx;
     private long serverTime;
-    private static final Timer rollupLocatorExecuteTimer = Metrics.timer(RollupService.class, "Locate and Schedule Rollups for Slot");
-
     private Range parentRange;
+
+    private static final Timer rollupLocatorExecuteTimer = Metrics.timer(RollupService.class, "Locate and Schedule Rollups for Slot");
+    private final boolean EXP_BATCH_WRITES_OPTIMIZATION = Configuration.getInstance().getBooleanProperty(CoreConfig.EXP_BATCH_WRITES_OPTIMIZATION);
 
     LocatorFetchRunnable(ScheduleContext scheduleCtx,
                          SlotKey destSlotKey,
@@ -123,39 +124,45 @@ class LocatorFetchRunnable implements Runnable {
         Set<Locator> locators = getLocators(executionContext);
         ListMultimap<TokenRange, Locator> multimap = ArrayListMultimap.create();
 
-        //grouping locators by token range.
-        for (Locator locator: locators) {
 
-            try {
-                IPartitioner<LongToken> partitioner = new Murmur3Partitioner();
-                LongToken token = partitioner.getToken(encoder.encode(CharBuffer.wrap(locator.getMetricName())));
+        if (EXP_BATCH_WRITES_OPTIMIZATION) {
 
-                for (TokenRange tokenRange: tokenRanges) {
-                    if (tokenRange.contains(new DatastaxM3PToken(token))) {
-                        multimap.put(tokenRange, locator);
-                        break;
+            //grouping locators by token range.
+            for (Locator locator: locators) {
+
+                try {
+                    IPartitioner<LongToken> partitioner = new Murmur3Partitioner();
+                    LongToken token = partitioner.getToken(encoder.encode(CharBuffer.wrap(locator.getMetricName())));
+
+                    for (TokenRange tokenRange: tokenRanges) {
+                        if (tokenRange.contains(new DatastaxM3PToken(token))) {
+                            multimap.put(tokenRange, locator);
+                            break;
+                        }
                     }
+
+                } catch (CharacterCodingException e) {
+                    log.error("Error calculating token for locator:[%s]", locator);
                 }
+            }
 
-            } catch (CharacterCodingException e) {
-                log.error("Error calculating token for locator:[%s]", locator);
+            log.info("Number of unique Token Ranges per slot: {}, number of locators: {}", multimap.keySet().size(), locators.size());
+
+            // processing locators, partition by partition. This way, when we write these locators, there is a
+            // chance locators belonging to the same partition get batched up. If not from the same partition, atleast
+            // they are not in a wide range of partitions.
+            for (TokenRange tokenRange: multimap.keySet()) {
+                for (Locator locator: multimap.get(tokenRange)) {
+                    rollCount = processLocator(rollCount, executionContext, rollupBatchWriter, locator, tokenRange);
+                }
+            }
+        } else {
+            for (Locator locator : locators) {
+                rollCount = processLocator(rollCount, executionContext, rollupBatchWriter, locator);
             }
         }
 
-        log.info("Number of Token Ranges per slot: {}, number of locators: {}", multimap.keySet().size(), locators.size());
-        // processing locators, partition by partition. This way, when we write these locators, there is a
-        // chance locators belonging to the same partition get batched up. If not from the same partition, atleast
-        // they are not in a wide range of partitions.
-        for (TokenRange tokenRange: multimap.keySet()) {
-            for (Locator locator: multimap.get(tokenRange)) {
-                rollCount = processLocator(rollCount, executionContext, rollupBatchWriter, locator, tokenRange);
-            }
-        }
 
-//        for (Locator locator : locators) {
-//            rollCount = processLocator(rollCount, executionContext, rollupBatchWriter, locator);
-//        }
-        
         // now wait until ctx is drained. someone needs to be notified.
         drainExecutionContext(waitStart, rollCount, executionContext, rollupBatchWriter);
 

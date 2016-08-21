@@ -181,7 +181,9 @@ public enum CoreConfig implements ConfigDefaults {
     CORS_ALLOWED_ORIGINS("*"),
     CORS_ALLOWED_METHODS("GET, POST"),
     CORS_ALLOWED_HEADERS("X-Auth-Token, Accept"),
-    CORS_ALLOWED_MAX_AGE("1728000");
+    CORS_ALLOWED_MAX_AGE("1728000"),
+
+    EXP_BATCH_WRITES_OPTIMIZATION("false");
 
     static {
         Configuration.getInstance().loadDefaults(CoreConfig.values());
