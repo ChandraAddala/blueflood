@@ -20,8 +20,6 @@ import com.codahale.metrics.Timer;
 import com.datastax.driver.core.DatastaxM3PToken;
 import com.datastax.driver.core.TokenRange;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.ListMultimap;
 import com.rackspacecloud.blueflood.io.IOContainer;
 import com.rackspacecloud.blueflood.io.datastax.DatastaxIO;
 import com.rackspacecloud.blueflood.rollup.Granularity;
@@ -32,7 +30,6 @@ import com.rackspacecloud.blueflood.utils.Metrics;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.LongToken;
 import org.apache.cassandra.dht.Murmur3Partitioner;
-import org.apache.cassandra.thrift.KeyRange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,7 +37,6 @@ import java.nio.CharBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetEncoder;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -124,63 +120,25 @@ class LocatorFetchRunnable implements Runnable {
         Set<Locator> locators = getLocators(executionContext);
 
 
-        ListMultimap<TokenRange, Locator> multimap = ArrayListMultimap.create();
-        if (EXP_BATCH_WRITES_OPTIMIZATION) {
+        for (Locator locator : locators) {
 
-            //grouping locators by token range.
-            for (Locator locator: locators) {
+            TokenRange tokenRangeContainingToken = null;
 
-                LongToken token = getToken(encoder, locator);
+            LongToken token = getToken(encoder, locator);
+            for (TokenRange tokenRange: tokenRanges) {
 
-                boolean isTokenWithinRange = false;
-                for (TokenRange tokenRange: tokenRanges) {
-                    if (tokenRange.contains(new DatastaxM3PToken(token))) {
-
-                        isTokenWithinRange = true;
-                        log.debug("Locator {} has token value {} and fits in token range {}", new Object[] {locator, token, tokenRange});
-
-                        multimap.put(tokenRange, locator);
-                        break;
-                    }
-                }
-
-                if (!isTokenWithinRange) {
-                    log.error("Locator {} with token {} not found in any token range", locator, token);
+                if (tokenRange.contains(new DatastaxM3PToken(token))) {
+                    log.debug("Locator {} has token value {} and fits in token range {}", new Object[] {locator, token, tokenRange});
+                    tokenRangeContainingToken = tokenRange;
+                    break;
                 }
             }
 
-            log.info("Number of unique Token Ranges per slot: {}, number of locators: {}", multimap.keySet().size(), locators.size());
-
-            // processing locators, partition by partition. This way, when we write these locators, there is a
-            // chance locators belonging to the same partition get batched up. If not from the same partition, atleast
-            // they are not in a wide range of partitions.
-            for (TokenRange tokenRange: multimap.keySet()) {
-                for (Locator locator: multimap.get(tokenRange)) {
-                    rollCount = processLocator(rollCount, executionContext, rollupBatchWriter, locator, tokenRange);
-                }
+            if (tokenRangeContainingToken == null) {
+                log.error("Locator {} with token {} not found in any token range", locator, token);
             }
-        } else {
 
-            for (Locator locator : locators) {
-
-                LongToken token = getToken(encoder, locator);
-
-                boolean isTokenWithinRange = false;
-                for (TokenRange tokenRange: tokenRanges) {
-                    if (tokenRange.contains(new DatastaxM3PToken(token))) {
-
-                        isTokenWithinRange = true;
-                        log.debug("Locator {} has token value {} and fits in token range {}", new Object[] {locator, token, tokenRange});
-
-                        rollCount = processLocator(rollCount, executionContext, rollupBatchWriter, locator, tokenRange);
-                        break;
-                    }
-                }
-
-                if (!isTokenWithinRange) {
-                    log.error("Locator {} with token {} not found in any token range", locator, token);
-                }
-            }
+            rollCount = processLocator(rollCount, executionContext, rollupBatchWriter, locator, tokenRangeContainingToken);
         }
 
         // now wait until ctx is drained. someone needs to be notified.
