@@ -17,6 +17,7 @@
 package com.rackspacecloud.blueflood.service;
 
 
+import com.datastax.driver.core.TokenRange;
 import com.google.common.annotations.VisibleForTesting;
 import com.netflix.astyanax.model.ColumnFamily;
 import com.rackspacecloud.blueflood.io.CassandraModel.MetricColumnFamily;
@@ -30,23 +31,42 @@ public class SingleRollupWriteContext {
     private final Long timestamp;
     private final MetricColumnFamily destinationCF;
     private final Granularity granularity;
+    private final TokenRange tokenRange;
 
     public SingleRollupWriteContext(Rollup rollup,
                                     SingleRollupReadContext singleRollupReadContext,
                                     MetricColumnFamily dstCF) {
         this(rollup, singleRollupReadContext.getLocator(),
                 singleRollupReadContext.getRollupGranularity(), dstCF,
-                singleRollupReadContext.getRange().getStart());
+                singleRollupReadContext.getRange().getStart(), null);
     }
+
+    public SingleRollupWriteContext(Rollup rollup,
+                                    SingleRollupReadContext singleRollupReadContext,
+                                    MetricColumnFamily dstCF,
+                                    TokenRange tokenRange) {
+        this(rollup, singleRollupReadContext.getLocator(),
+                singleRollupReadContext.getRollupGranularity(), dstCF,
+                singleRollupReadContext.getRange().getStart(), tokenRange);
+    }
+
     @VisibleForTesting
     public SingleRollupWriteContext(Rollup rollup, Locator locator,
                                     Granularity granularity,
-                                    MetricColumnFamily destCf, Long timestamp) {
+                                    MetricColumnFamily destCf, Long timestamp, TokenRange tokenRange) {
         this.rollup = rollup;
         this.locator = locator;
         this.granularity = granularity;
         this.destinationCF = destCf;
         this.timestamp = timestamp;
+        this.tokenRange = tokenRange;
+    }
+
+    @VisibleForTesting
+    public SingleRollupWriteContext(Rollup rollup, Locator locator,
+                                    Granularity granularity,
+                                    MetricColumnFamily destCf, Long timestamp) {
+        this(rollup, locator, granularity, destCf, timestamp, null);
     }
 
     public Rollup getRollup() {
@@ -67,4 +87,8 @@ public class SingleRollupWriteContext {
     }
     
     public Granularity getGranularity() { return granularity; }
+
+    public TokenRange getTokenRange() {
+        return tokenRange;
+    }
 }

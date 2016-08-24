@@ -150,7 +150,7 @@ public class RollupRunnable implements Runnable {
                 calcrollupContext.stop();
             }
             // now enqueue the new rollup for writing.
-            rollupBatchWriter.enqueueRollupForWrite(new SingleRollupWriteContext(rollup, singleRollupReadContext, dstCF));
+            rollupBatchWriter.enqueueRollupForWrite(new SingleRollupWriteContext(rollup, singleRollupReadContext, dstCF, singleRollupReadContext.getTokenRange()));
 
             RollupService.lastRollupTime.set(System.currentTimeMillis());
             //Emit a rollup event to event emitter

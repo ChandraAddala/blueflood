@@ -77,6 +77,14 @@ public class DatastaxIO {
         }
     }
 
+    public static Set<TokenRange> getTokenRanges() {
+        if ( cluster == null ) {
+            throw new IllegalStateException("cluster is not initialized");
+        }
+
+        return cluster.getMetadata().getTokenRanges();
+    }
+
     private static void logDebugConnectionInfo() {
         if ( cluster == null ) {
             throw new IllegalStateException("cluster is not initialized");

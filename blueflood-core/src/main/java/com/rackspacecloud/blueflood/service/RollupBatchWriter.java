@@ -16,15 +16,19 @@
 
 package com.rackspacecloud.blueflood.service;
 
+import com.datastax.driver.core.TokenRange;
 import com.rackspacecloud.blueflood.io.AbstractMetricsRW;
 import com.rackspacecloud.blueflood.io.IOContainer;
 import com.rackspacecloud.blueflood.types.RollupType;
+import org.apache.cassandra.thrift.KeyRange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 
@@ -35,7 +39,8 @@ public class RollupBatchWriter {
     private final AbstractMetricsRW preAggregatedRW;
     private final ThreadPoolExecutor executor;
     private final RollupExecutionContext context;
-    private final ConcurrentLinkedQueue<SingleRollupWriteContext> rollupQueue = new ConcurrentLinkedQueue<SingleRollupWriteContext>();
+
+    private final Map<TokenRange, ConcurrentLinkedQueue<SingleRollupWriteContext>> locatorMap = new ConcurrentHashMap<TokenRange, ConcurrentLinkedQueue<SingleRollupWriteContext>>();
     private static final int ROLLUP_BATCH_MIN_SIZE = Configuration.getInstance().getIntegerProperty(CoreConfig.ROLLUP_BATCH_MIN_SIZE);
     private static final int ROLLUP_BATCH_MAX_SIZE = Configuration.getInstance().getIntegerProperty(CoreConfig.ROLLUP_BATCH_MAX_SIZE);
 
@@ -47,25 +52,39 @@ public class RollupBatchWriter {
     }
 
 
-    public void enqueueRollupForWrite(SingleRollupWriteContext rollupWriteContext) {
-        rollupQueue.add(rollupWriteContext);
+    public synchronized void enqueueRollupForWrite(SingleRollupWriteContext rollupWriteContext) {
+
+        if (locatorMap.get(rollupWriteContext.getTokenRange()) != null) {
+            ConcurrentLinkedQueue<SingleRollupWriteContext> rollupQueue1 = locatorMap.get(rollupWriteContext.getTokenRange());
+            rollupQueue1.add(rollupWriteContext);
+        } else {
+            ConcurrentLinkedQueue<SingleRollupWriteContext> rollupQueue1 = new ConcurrentLinkedQueue<SingleRollupWriteContext>();
+            rollupQueue1.add(rollupWriteContext);
+            locatorMap.put(rollupWriteContext.getTokenRange(), rollupQueue1);
+        }
+
         context.incrementWriteCounter();
         // enqueue MIN_SIZE batches only if the threadpool is unsaturated.
         // else, enqueue when we have >= MAX_SIZE pending
-        if (rollupQueue.size() >= ROLLUP_BATCH_MIN_SIZE) {
-            if (executor.getActiveCount() < executor.getPoolSize() ||
-                    rollupQueue.size() >= ROLLUP_BATCH_MAX_SIZE) {
-                drainBatch();
+
+        for (Map.Entry<TokenRange, ConcurrentLinkedQueue<SingleRollupWriteContext>> locatorEntry: locatorMap.entrySet()) {
+            if (locatorEntry.getValue().size() >= ROLLUP_BATCH_MIN_SIZE) {
+                if (executor.getActiveCount() < executor.getPoolSize() ||
+                        locatorEntry.getValue().size() >= ROLLUP_BATCH_MAX_SIZE) {
+                    drainBatch(locatorEntry.getKey());
+                }
             }
         }
     }
 
-    public synchronized void drainBatch() {
+
+    public synchronized void drainBatch(TokenRange tokenRange) {
         List<SingleRollupWriteContext> writeBasicContexts = new ArrayList<SingleRollupWriteContext>();
         List<SingleRollupWriteContext> writePreAggrContexts = new ArrayList<SingleRollupWriteContext>();
         try {
+            ConcurrentLinkedQueue<SingleRollupWriteContext> rollupQueue2 = locatorMap.get(tokenRange);
             for (int i=0; i<=ROLLUP_BATCH_MAX_SIZE; i++) {
-                SingleRollupWriteContext context = rollupQueue.remove();
+                SingleRollupWriteContext context = rollupQueue2.remove();
                 if ( context.getRollup().getRollupType() == RollupType.BF_BASIC ) {
                     writeBasicContexts.add(context);
                 } else {
@@ -86,6 +105,16 @@ public class RollupBatchWriter {
                     String.format("drainBatch(): kicking off RollupBatchWriteRunnables for %d preAggr contexts",
                             writePreAggrContexts.size()));
             executor.execute(new RollupBatchWriteRunnable(writePreAggrContexts, context, preAggregatedRW));
+        }
+    }
+
+
+    public synchronized void drainBatch() {
+        for (Map.Entry<TokenRange, ConcurrentLinkedQueue<SingleRollupWriteContext>> locatorEntry: locatorMap.entrySet()) {
+            if (locatorEntry.getValue() != null && locatorEntry.getValue().size() > 0) {
+                //From the remaining locators draining one token range at a time
+                drainBatch(locatorEntry.getKey());
+            }
         }
     }
 }

@@ -17,20 +17,29 @@
 package com.rackspacecloud.blueflood.service;
 
 import com.codahale.metrics.Timer;
+import com.datastax.driver.core.DatastaxM3PToken;
+import com.datastax.driver.core.TokenRange;
 import com.google.common.annotations.VisibleForTesting;
 import com.rackspacecloud.blueflood.io.IOContainer;
+import com.rackspacecloud.blueflood.io.datastax.DatastaxIO;
 import com.rackspacecloud.blueflood.rollup.Granularity;
 import com.rackspacecloud.blueflood.rollup.SlotKey;
 import com.rackspacecloud.blueflood.types.Locator;
 import com.rackspacecloud.blueflood.types.Range;
 import com.rackspacecloud.blueflood.utils.Metrics;
+import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.dht.LongToken;
+import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.CharBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.Charset;
+import java.nio.charset.CharsetEncoder;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 
 /**
@@ -47,9 +56,10 @@ class LocatorFetchRunnable implements Runnable {
     private SlotKey parentSlotKey;
     private ScheduleContext scheduleCtx;
     private long serverTime;
-    private static final Timer rollupLocatorExecuteTimer = Metrics.timer(RollupService.class, "Locate and Schedule Rollups for Slot");
-
     private Range parentRange;
+
+    private static final Timer rollupLocatorExecuteTimer = Metrics.timer(RollupService.class, "Locate and Schedule Rollups for Slot");
+    private final boolean EXP_BATCH_WRITES_OPTIMIZATION = Configuration.getInstance().getBooleanProperty(CoreConfig.EXP_BATCH_WRITES_OPTIMIZATION);
 
     LocatorFetchRunnable(ScheduleContext scheduleCtx,
                          SlotKey destSlotKey,
@@ -100,16 +110,55 @@ class LocatorFetchRunnable implements Runnable {
         final RollupExecutionContext executionContext = createRollupExecutionContext();
         final RollupBatchWriter rollupBatchWriter = createRollupBatchWriter(executionContext);
 
+
+        //token ranges that define data distribution in the cassandra ring
+        Set<TokenRange> tokenRanges = DatastaxIO.getTokenRanges();
+
+        Charset charset = Charset.forName("UTF-8");
+        CharsetEncoder encoder = charset.newEncoder();
+
         Set<Locator> locators = getLocators(executionContext);
 
+
         for (Locator locator : locators) {
-            rollCount = processLocator(rollCount, executionContext, rollupBatchWriter, locator);
+
+            TokenRange tokenRangeContainingToken = null;
+
+            LongToken token = getToken(encoder, locator);
+            for (TokenRange tokenRange: tokenRanges) {
+
+                if (tokenRange.contains(new DatastaxM3PToken(token))) {
+                    log.debug("Locator {} has token value {} and fits in token range {}", new Object[] {locator, token, tokenRange});
+                    tokenRangeContainingToken = tokenRange;
+                    break;
+                }
+            }
+
+            if (tokenRangeContainingToken == null) {
+                log.error("Locator {} with token {} not found in any token range", locator, token);
+            }
+
+            rollCount = processLocator(rollCount, executionContext, rollupBatchWriter, locator, tokenRangeContainingToken);
         }
-        
+
         // now wait until ctx is drained. someone needs to be notified.
         drainExecutionContext(waitStart, rollCount, executionContext, rollupBatchWriter);
 
         timerCtx.stop();
+    }
+
+    private LongToken getToken(CharsetEncoder encoder, Locator locator) {
+        LongToken token = null;
+
+        try {
+
+            IPartitioner<LongToken> partitioner = new Murmur3Partitioner();
+            token = partitioner.getToken(encoder.encode(CharBuffer.wrap(locator.getMetricName())));
+
+        } catch (CharacterCodingException e) {
+            log.error("Error calculating token for locator:[%s]", locator);
+        }
+        return token;
     }
 
     protected RollupExecutionContext createRollupExecutionContext() {
@@ -158,10 +207,14 @@ class LocatorFetchRunnable implements Runnable {
     }
 
     public int processLocator(int rollCount, RollupExecutionContext executionContext, RollupBatchWriter rollupBatchWriter, Locator locator) {
+        return processLocator(rollCount, executionContext, rollupBatchWriter, locator, null);
+    }
+
+    public int processLocator(int rollCount, RollupExecutionContext executionContext, RollupBatchWriter rollupBatchWriter, Locator locator, TokenRange tokenRange) {
         if (log.isTraceEnabled())
             log.trace("Rolling up (check,metric,dimension) {} for (gran,slot,shard) {}", locator, parentSlotKey);
         try {
-            executeRollupForLocator(executionContext, rollupBatchWriter, locator);
+            executeRollupForLocator(executionContext, rollupBatchWriter, locator, tokenRange);
             rollCount += 1;
         } catch (Throwable any) {
             // continue on, but log the problem so that we can fix things later.
@@ -177,8 +230,12 @@ class LocatorFetchRunnable implements Runnable {
     }
 
     public void executeRollupForLocator(RollupExecutionContext executionContext, RollupBatchWriter rollupBatchWriter, Locator locator) {
+        executeRollupForLocator(executionContext, rollupBatchWriter, locator, null);
+    }
+
+    public void executeRollupForLocator(RollupExecutionContext executionContext, RollupBatchWriter rollupBatchWriter, Locator locator, TokenRange tokenRange) {
         executionContext.incrementReadCounter();
-        final SingleRollupReadContext singleRollupReadContext = new SingleRollupReadContext(locator, parentRange, getGranularity());
+        final SingleRollupReadContext singleRollupReadContext = new SingleRollupReadContext(locator, parentRange, getGranularity(), tokenRange);
         RollupRunnable rollupRunnable = new RollupRunnable(executionContext, singleRollupReadContext, rollupBatchWriter, enumValidatorExecutor);
         rollupReadExecutor.execute(rollupRunnable);
     }
